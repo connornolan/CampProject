@@ -1,5 +1,5 @@
 ---
-title: "A Bayesian Hierarchical Model for Plant Macrofossil Time Series"
+title: "A State Space Model for Plant Macrofossil Time Series"
 author: "Connor Nolan"
 date: "August 21, 2014"
 output: html_document
@@ -11,10 +11,11 @@ Jackson, et al. 2014 QSR
 
 Want to model the plant macrofossil counts in a way that is analagous to how we modeled pollen earlier this week. 
 
-The data look like this:
-Histogram form:
+The data are plant macrofossil counts for a given species and fossil type at each time step - $y_{t}$ - and sample volumes - $v_{t}$. 
 
-```{r, echo=FALSE , fig.width=10}
+## Some EDA
+
+```{r , echo =FALSE,  fig.width=10}
 
 tower <- read.csv("./data/TowerCore1Macros.csv")
 tower <- tower[1:131,]
@@ -34,11 +35,14 @@ hist(oak)
 hist(whitePine)
 hist(hemlock)
 
-hist(maple[maple>0])
-hist(oak[oak>0])
-hist(whitePine[whitePine>0])
-hist(hemlock[hemlock>0])
-
+maplefit <- rpois(sum(maple), lambda = mean(maple))
+hist(maplefit)
+oakfit <- rpois(sum(oak), lambda = mean(oak))
+hist(oakfit)
+pinefit <- rpois(sum(whitePine), lambda = mean(whitePine))
+hist(pinefit)
+hemlockfit <- rpois(sum(hemlock), lambda = mean(hemlock))
+hist(hemlockfit)
 ```
 
 Time series form:
@@ -62,6 +66,9 @@ title("Hemlock Needles")
 ## The Model
 
 A simple hierarchical model
+
+Since we have count data a Poisson distribution is a simple and natural choice, but the macrofossil data are definitely overdispersed.
+
 $$
 y_{t} \sim \mbox{Pois}(M_{t})
 $$
@@ -79,12 +86,12 @@ $$
 $$
 
 
-Data: plant macrofossil counts for a given species and fossil type at each time step - $y_{t}$ - and sample volumes - $v_{t}$. 
+
 
 Latent: $\theta_{t}$ is the true macrofossil count per unit volume
 
 
-**JAGS code for the model**
+### Used JAGS to sample from the model
 ```{r model specification, eval=FALSE}
 Y <- macros
 V <- vols
@@ -119,10 +126,11 @@ macroHMM <- function(){
 ```
 
 
-### Used JAGS to sample from the model
-
-### Diagnostics on the MCMC 
+### Diagnostics on the MCMC
+#### Note: Malcolm objects to showing these
 I had one chain of 100,000 iterations with a burn in of 25,000 iterations. Everything seems to have converged and mixed pretty well. 
+
+
 
 Trace plot for the taus
 ![tau traces](figures/var-trace.png)
@@ -143,12 +151,14 @@ Trace plot for a few thetas
 
 ### Next Steps
 
-* more complex distribution for the mean of the $\theta{t}$'s perhaps like the one from the pollen model:
+* Try different distribution on the Data: $y_{t}$s that accounts for the overdispersion? 
+
+* more complex distribution for the mean of the $\theta{t}$'s perhaps like the one from the pollen model with an overall mean and an autocorrelation that is a hyperparameter, which looked like this for pollen:
 $$ 
 \mbox{logit}(\theta_t)  \sim  N(\mu + \rho (\mbox{logit}(\theta_{t-1}) - \mu), \tau^2)
 $$
 * jointly model pollen and macrofossils? have to consider how to construct the latent process in a way that can be shared between the two different observations
-* 
+*  
 
 
 
