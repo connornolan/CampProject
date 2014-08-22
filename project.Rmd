@@ -1,0 +1,300 @@
+---
+title: "Camp PalEON 2014 - Plant Macro HMM"
+author: "Connor Nolan"
+date: "August 21, 2014"
+output: html_document
+---
+
+# Camp PalEON 2014 - Plant Macrofossil Project
+## Connor Nolan
+
+Want to model plant macrofossil data from a lake core with an HMM. 
+
+I'm going to use data from tower lake, focusing on a few key macrofossil time series that are used in the paper. Those are: Pinus strobus budscales, Acer saccharum budscales, Tsuga needles, and Fagus grandifolia budscales.
+
+
+
+
+```{r, data and EDA}
+# data read in
+tower <- read.csv("./data/TowerCore1Macros.csv")
+tower <- tower[1:131,]
+head(tower)
+
+maple <- tower$Acersacbud
+oak <- tower$Quercusbud
+whitePine <- tower$Pinstbud
+hemlock <- tower$TSCAneedle
+macros <- cbind(maple, oak,whitePine,hemlock)
+depth <- -tower$depth
+age <- round(-tower$age,0)
+vols <- tower$volume
+
+
+par(mfrow=c(2,4))
+hist(maple)
+hist(oak)
+hist(whitePine)
+hist(hemlock)
+
+hist(maple[maple>0])
+hist(oak[oak>0])
+hist(whitePine[whitePine>0])
+hist(hemlock[hemlock>0])
+
+par(mfrow=c(1,1))
+hist(vols)
+
+par(mfrow=c(3,1))
+plot(seq(-length(maple),-1), rev(maple), type="h", lwd = 5)
+plot(depth, maple, type="h", lwd = 5)
+plot(age, maple, type="h", lwd = 5)
+
+par(mfrow=c(3,1))
+plot(seq(-length(oak),-1), rev(oak), type="h", lwd = 5)
+plot(depth, oak, type="h", lwd = 5)
+plot(age, oak, type="h", lwd = 5)
+
+par(mfrow=c(3,1))
+plot(seq(-length(whitePine),-1), rev(whitePine), type="h", lwd = 5)
+plot(depth, whitePine, type="h", lwd = 5)
+plot(age, whitePine, type="h", lwd = 5)
+
+par(mfrow=c(3,1))
+plot(seq(-length(hemlock),-1), rev(hemlock), type="h", lwd = 5)
+plot(depth, hemlock, type="h", lwd = 5)
+plot(age, hemlock, type="h", lwd = 5)
+
+Y <- macros
+V <- vols
+nT <- nrow(Y)
+nTypes <- ncol(Y)
+
+
+```
+
+
+```{r, specifying the model - for 1 species}
+
+macroHMM1 <- function(){
+  
+  # priors
+  tau ~ dunif(0,100)
+  tau2Inv <- 1/(tau**2)
+  logTheta[1] ~ dnorm(0, 0.0001)
+  
+  #latent
+  for (t in 2:nT){
+    logTheta[t] ~ dnorm(logTheta[t-1], tau2Inv)
+  }
+  
+  #M <- exp(logTheta)*V
+  #theta <- exp(logTheta)
+  
+  # data level
+  for (t in 1:nT){
+    M[t] <- exp(logTheta[t])*V[t]
+    Y[t] ~ dpois(M[t])
+    
+    theta[t] <- exp(logTheta[t])
+  }
+
+}
+
+```
+
+```{r, jags}
+require(R2jags)
+out <- jags(data = list(Y=Y, nT = nT, V = vols), parameters.to.save = c("tau", "logTheta", "theta"), n.chains = 1, n.iter = 2000, n.burnin = 1000, model.file = macroHMM1, DIC = FALSE)
+
+```
+
+
+```{r, analysis}
+out.mcmc <- as.mcmc(out)[[1]]
+plot(out.mcmc)
+summary(out.mcmc)
+
+thetaHat <- hemlock/vols
+
+colNames <- dimnames(out.mcmc)[[2]]
+whichTheta <- grep('theta', colNames)
+thetaPost <- out.mcmc[ , whichTheta]
+thetaNames <- dimnames(thetaPost)[[2]]
+index <- gsub("theta\\[", "", thetaNames)
+index <- as.numeric(gsub("\\]", "", index))
+thetaPost <- thetaPost[ , order(index)]
+head(thetaPost)
+
+
+
+
+par(mfrow = c(2,1))
+plot(age, thetaHat, col = 'red')
+quants <- apply(thetaPost, 2, quantile, c(.025, .975))
+polygon(cbind(c(age, rev(age), age[1]), c(quants[1, ], 
+  rev(quants[2, ]), quants[1, 1])), border = NA, col = 'lightblue')
+#lines(age, thetaHat, col = 'red')
+points(age, thetaHat, col = 'red')
+lines(age, colMeans(thetaPost), col = 'blue')
+title('hemlock needles at Tower Lake')
+abline(v = 1650 - 1950, col = 'grey')
+plot(age, hemlock, type="h", lwd = 5)
+
+
+
+par(mfrow = c(1, 3))
+nIts <- nrow(out.mcmc)
+plot(seq_len(nIts), out.mcmc[ , 1], type = 'l', main = 'mu')
+plot(seq_len(nIts), out.mcmc[ , 2], type = 'l', main = 'rho')
+plot(seq_len(nIts), out.mcmc[ , 3], type = 'l', main = 'tau')
+print(mean(out.mcmc[201:1000, 1]))
+print(mean(out.mcmc[201:1000, 2]))
+print(mean(out.mcmc[201:1000, 3]))
+
+
+
+```
+
+
+```{r, data for doing all at once}
+Y <- macros
+V <- vols
+nT <- nrow(Y)
+nTypes <- ncol(Y)
+
+```
+
+
+```{r, specifying the model - for multiple types}
+
+macroHMM <- function(){
+  
+  # priors
+  for (i in 1:nTypes){
+    tau[i] ~ dunif(0,100)
+    tau2Inv[i] <- 1/(tau[i]**2)
+    logTheta[1,i] ~ dnorm(0, 0.0001)
+    
+    #latent
+    for (t in 2:nT){
+      logTheta[t,i] ~ dnorm(logTheta[t-1,i], tau2Inv[i])
+    }
+  
+    
+    # data level
+    for (t in 1:nT){
+      M[t,i] <- exp(logTheta[t,i])*V[t]
+      Y[t,i] ~ dpois(M[t,i])
+      
+      theta[t,i] <- exp(logTheta[t,i])
+    }
+  }
+}
+
+```
+
+
+```{r, jags for multiple taxa}
+require(R2jags)
+out <- jags(data = list(Y=Y, nT = nT, nTypes = nTypes, V = vols), parameters.to.save = c("tau", "theta"), n.chains = 1, n.iter = 100000, n.burnin = 25000, model.file = macroHMM, DIC = FALSE)
+
+```
+
+```{r, analysis of output for multiple taxa}
+out.mcmc <- as.mcmc(out)[[1]]
+
+plot(out.mcmc)
+
+thetaHat <- Y/vols
+
+vals <- 1:nT
+thetaPost <- matrix(NA, nrow=nT,ncol=nTypes)
+
+#for (i in 1:nTypes){
+#  names <- paste("theta[",vals,",",i,"]",sep="")
+#  thetaPost[,i] <- out.mcmc[ , names]
+#}
+
+names1 <- paste("theta[",vals,",1]",sep="")
+thetaPost1 <- out.mcmc[ , names1]
+
+names2 <- paste("theta[",vals,",2]",sep="")
+thetaPost2 <- out.mcmc[ , names2]
+
+names3 <- paste("theta[",vals,",3]",sep="")
+thetaPost3 <- out.mcmc[ , names3]
+
+names4 <- paste("theta[",vals,",4]",sep="")
+thetaPost4 <- out.mcmc[ , names4]
+
+thetaPost <- cbind(thetaPost1, thetaPost2, thetaPost3, thetaPost4)
+
+
+# maple
+x11()
+par(mfrow = c(2,1))
+plot(age, thetaHat[,1], col = 'red')
+quants <- apply(thetaPost1, 2, quantile, c(.025, .975))
+polygon(cbind(c(age, rev(age), age[1]), c(quants[1, ], 
+  rev(quants[2, ]), quants[1, 1])), border = NA, col = 'lightslateblue')
+lines(age, thetaHat, col = 'red')
+points(age, thetaHat[,1], col = 'orange3', lwd=3)
+lines(age, colMeans(thetaPost1), col = 'midnightblue', lwd=3)
+title('Maple budscales at Tower Lake')
+#abline(v = 1650 - 1950, col = 'grey')
+plot(age, Y[,1], type="h", lwd = 5)
+
+
+
+
+# oak
+x11()
+par(mfrow = c(2,1))
+plot(age, thetaHat[,2], col = 'red')
+quants <- apply(thetaPost2, 2, quantile, c(.025, .975))
+polygon(cbind(c(age, rev(age), age[1]), c(quants[1, ], 
+  rev(quants[2, ]), quants[1, 1])), border = NA, col = 'lightslateblue')
+#lines(age, thetaHat[,2], col = 'red')
+points(age, thetaHat[,2], col = 'orange3', lwd=3)
+lines(age, colMeans(thetaPost2), col = 'midnightblue', lwd=3)
+title('Oak budscales at Tower Lake')
+#abline(v = 1650 - 1950, col = 'grey')
+plot(age, Y[,2], type="h", lwd = 5)
+
+
+
+# white pine
+x11()
+par(mfrow = c(2,1))
+plot(age, thetaHat[,3], col = 'red')
+quants <- apply(thetaPost3, 2, quantile, c(.025, .975))
+polygon(cbind(c(age, rev(age), age[1]), c(quants[1, ], 
+  rev(quants[2, ]), quants[1, 1])), border = NA, col = 'lightslateblue')
+#lines(age, thetaHat[,3], col = 'red')
+points(age, thetaHat[,3], col = 'orange3', lwd=2)
+lines(age, colMeans(thetaPost3), col = 'midnightblue')
+title('White Pine budscales at Tower Lake')
+#abline(v = 1650 - 1950, col = 'grey')
+plot(age, Y[,3], type="h", lwd = 5)
+
+
+# hemlock needles
+x11()
+par(mfrow = c(2,1))
+plot(age, thetaHat[,4], col = 'red')
+quants <- apply(thetaPost4, 2, quantile, c(.025, .975))
+polygon(cbind(c(age, rev(age), age[1]), c(quants[1, ], 
+  rev(quants[2, ]), quants[1, 1])), border = NA, col = 'lightslateblue')
+#lines(age, thetaHat[,4], col = 'red') 
+points(age, thetaHat[,4], col = 'orange3', lwd=2)
+lines(age, colMeans(thetaPost4), col = 'midnightblue', lwd=2)
+title('Hemlock needles at Tower Lake')
+#abline(v = 1650 - 1950, col = 'grey')
+plot(age, Y[,4], type="h", lwd = 5)
+
+
+```
+
+
+
